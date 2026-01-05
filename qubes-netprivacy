@@ -1,0 +1,104 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# qubes-netprivacy - Configure MAC address randomization and IPv6 privacy for QubesOS
+#
+# SPDX-FileCopyrightText: 2026 Bounty Contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+import argparse
+import os
+import sys
+
+NM_CONF_DIR = "/etc/NetworkManager/conf.d"
+NETWORKD_CONF_DIR = "/etc/systemd/networkd.conf.d"
+
+MAC_CONF_FILE = os.path.join(NM_CONF_DIR, "80_randomize-mac.conf")
+IPV6_NM_CONF_FILE = os.path.join(NM_CONF_DIR, "80_ipv6-privacy.conf")
+IPV6_NETWORKD_CONF_FILE = os.path.join(NETWORKD_CONF_DIR, "80_ipv6-privacy-extensions.conf")
+
+def ensure_dir(path):
+    """Create directory if it doesn't exist"""
+    os.makedirs(path, exist_ok=True)
+
+def write_file(path, content):
+    """Write content to file"""
+    with open(path, 'w') as f:
+        f.write(content)
+    print(f"Created: {path}")
+
+def remove_file(path):
+    """Remove file if it exists"""
+    if os.path.exists(path):
+        os.remove(path)
+        print(f"Removed: {path}")
+
+def enable_mac_random():
+    """Enable NetworkManager MAC randomization (stable cloning)"""
+    ensure_dir(NM_CONF_DIR)
+    config = """[connection]
+wifi.cloned-mac-address=stable
+ethernet.cloned-mac-address=stable
+"""
+    write_file(MAC_CONF_FILE, config)
+    print("MAC randomization enabled (stable mode)")
+
+def enable_ipv6_privacy():
+    """Enable IPv6 privacy extensions"""
+    ensure_dir(NM_CONF_DIR)
+    ensure_dir(NETWORKD_CONF_DIR)
+    
+    nm_config = """[connection]
+ipv6.ip6-privacy=2
+"""
+    networkd_config = """[Network]
+IPv6PrivacyExtensions=kernel
+"""
+    write_file(IPV6_NM_CONF_FILE, nm_config)
+    write_file(IPV6_NETWORKD_CONF_FILE, networkd_config)
+    print("IPv6 privacy extensions enabled")
+
+def disable_all():
+    """Remove all network privacy configurations"""
+    remove_file(MAC_CONF_FILE)
+    remove_file(IPV6_NM_CONF_FILE)
+    remove_file(IPV6_NETWORKD_CONF_FILE)
+    print("All network privacy configs removed")
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="QubesOS Network Privacy Configurator",
+        epilog="After making changes, restart NetworkManager: sudo systemctl restart NetworkManager"
+    )
+    parser.add_argument("--enable-mac-random", action="store_true",
+                       help="Enable MAC address randomization (stable cloning)")
+    parser.add_argument("--enable-ipv6-privacy", action="store_true",
+                       help="Enable IPv6 privacy extensions")
+    parser.add_argument("--disable-all", action="store_true",
+                       help="Remove all network privacy configurations")
+    parser.add_argument("--version", action="version", version="qubes-netprivacy 1.0")
+    
+    args = parser.parse_args()
+    
+    # Check root
+    if os.geteuid() != 0:
+        print("Error: This script must be run as root", file=sys.stderr)
+        sys.exit(1)
+    
+    if not any([args.enable_mac_random, args.enable_ipv6_privacy, args.disable_all]):
+        parser.print_help()
+        sys.exit(1)
+    
+    if args.disable_all:
+        disable_all()
+    else:
+        if args.enable_mac_random:
+            enable_mac_random()
+        if args.enable_ipv6_privacy:
+            enable_ipv6_privacy()
+    
+    print("\nTo apply changes, restart NetworkManager:")
+    print("  sudo systemctl restart NetworkManager")
+
+if __name__ == "__main__":
+    main()
